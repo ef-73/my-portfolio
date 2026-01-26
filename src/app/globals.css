@@ -2,24 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { 
+:root {
   color-scheme: light;
 }
-.dark { 
-  color-scheme: dark; 
+
+.dark {
+  color-scheme: dark;
 }
 
 /* Animations */
 @keyframes floaty {
-  0% { transform: translate3d(0,0,0) scale(1); }
-  50% { transform: translate3d(30px,-20px,0) scale(1.05); }
-  100% { transform: translate3d(0,0,0) scale(1); }
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(30px, -20px, 0) scale(1.05); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
 }
 
 @keyframes drift {
-  0% { transform: translate3d(0,0,0); }
-  50% { transform: translate3d(-20px,15px,0); }
-  100% { transform: translate3d(0,0,0); }
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-20px, 15px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
 }
 
 /* Reduced motion */
