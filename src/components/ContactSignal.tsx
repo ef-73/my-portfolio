@@ -40,10 +40,16 @@ export default function ContactSignal() {
   // Draw waveform signal
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      console.error("[ContactSignal] ❌ Canvas ref is null!");
+      return;
+    }
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      console.error("[ContactSignal] ❌ Failed to get 2D context!");
+      return;
+    }
 
     // Get proper canvas dimensions
     const rect = canvas.getBoundingClientRect();
@@ -51,18 +57,23 @@ export default function ContactSignal() {
     const displayHeight = rect.height || 120;
     const dpr = window.devicePixelRatio || 1;
 
+    console.log(`[ContactSignal] Canvas rect: ${displayWidth}x${displayHeight} (DPR: ${dpr}), setting canvas.width=${displayWidth * dpr}, canvas.height=${displayHeight * dpr}`);
+
     canvas.width = displayWidth * dpr;
     canvas.height = displayHeight * dpr;
     ctx.scale(dpr, dpr);
 
-    const centerY = displayHeight / 2;
+    console.log(`[ContactSignal] ✓ Canvas ready: ${displayWidth}x${displayHeight} (DPR: ${dpr})`);
 
-    // Debug logging
-    if (process.env.NODE_ENV !== "production") {
-      console.log(
-        `[ContactSignal] Canvas ready: ${displayWidth}x${displayHeight} (DPR: ${dpr})`
-      );
-    }
+    // TEST RECTANGLE - Prove canvas is rendering
+    console.log("[ContactSignal] Drawing TEST RECTANGLE in blue");
+    ctx.fillStyle = "blue";
+    ctx.fillRect(10, 10, 150, 50);
+    ctx.fillStyle = "white";
+    ctx.font = "14px Arial";
+    ctx.fillText("CANVAS WORKS", 20, 40);
+
+    const centerY = displayHeight / 2;
 
     const draw = () => {
       // Clear

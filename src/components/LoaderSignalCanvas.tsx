@@ -117,15 +117,17 @@ export default function LoaderSignalCanvas() {
     const LOADER_KEY = "portfolio_loader_shown_session";
     const hasShownLoader = sessionStorage.getItem(LOADER_KEY);
     
+    console.log("[LoaderSignalCanvas] PHASE 1 mount: hasShownLoader=", hasShownLoader);
+    
     if (!hasShownLoader) {
       // First load - SHOW loader
       sessionStorage.setItem(LOADER_KEY, "true");
       setShouldShow(true);
-      DEBUG && console.log("[LoaderSignalCanvas] ✓ First load - showing loader");
+      console.log("[LoaderSignalCanvas] ✓ First load - setting shouldShow=true");
     } else {
       // Already shown - HIDE loader
       setShouldShow(false);
-      DEBUG && console.log("[LoaderSignalCanvas] ✓ Already shown - hiding loader");
+      console.log("[LoaderSignalCanvas] ✓ Already shown - setting shouldShow=false");
     }
   }, []);
 
@@ -138,11 +140,11 @@ export default function LoaderSignalCanvas() {
 
     const canvas = canvasRef.current;
     if (!canvas) {
-      DEBUG && console.error("[LoaderSignalCanvas] Canvas ref is null!");
+      console.error("[LoaderSignalCanvas] ❌ Canvas ref is null!");
       return;
     }
 
-    DEBUG && console.log("[LoaderSignalCanvas] Starting animation setup");
+    console.log("[LoaderSignalCanvas] ✓ shouldShow=true, starting animation setup, canvas.width=", canvas.width, "canvas.height=", canvas.height);
 
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) {
@@ -154,9 +156,11 @@ export default function LoaderSignalCanvas() {
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.parentElement?.getBoundingClientRect();
     
+    console.log(`[DEBUG] canvas.parentElement = ${canvas.parentElement?.tagName}, rect = `, rect);
+    
     if (!rect || rect.width === 0 || rect.height === 0) {
-      DEBUG && console.error(
-        `[LoaderSignalCanvas] Container zero dimensions: ${rect?.width}x${rect?.height}`
+      console.error(
+        `[LoaderSignalCanvas] ❌ Container zero dimensions: ${rect?.width}x${rect?.height}`
       );
       return;
     }
@@ -166,9 +170,17 @@ export default function LoaderSignalCanvas() {
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
-    DEBUG && console.log(
-      `[LoaderSignalCanvas] Canvas initialized: ${rect.width}x${rect.height} (DPR: ${dpr})`
+    console.log(
+      `[LoaderSignalCanvas] ✓ Canvas initialized: ${rect.width}x${rect.height} (DPR: ${dpr}), canvas.width=${canvas.width}, canvas.height=${canvas.height}`
     );
+
+    // TEST RECTANGLE - Prove canvas is rendering
+    console.log("[DEBUG] Drawing TEST RECTANGLE in red");
+    ctx.fillStyle = "red";
+    ctx.fillRect(20, 20, 200, 100);
+    ctx.fillStyle = "white";
+    ctx.font = "16px Arial";
+    ctx.fillText("CANVAS WORKS", 40, 60);
 
     // Initialize noise
     noiseRef.current = new SimpleNoise(Math.random() * 1000);
