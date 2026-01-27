@@ -57,6 +57,13 @@ export default function ContactSignal() {
 
     const centerY = displayHeight / 2;
 
+    // Debug logging
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[ContactSignal] Canvas ready: ${displayWidth}x${displayHeight} (DPR: ${dpr})`
+      );
+    }
+
     const draw = () => {
       // Clear
       ctx.fillStyle = "#ffffff";

@@ -1,12 +1,8 @@
 /**
  * LoaderSignalCanvas.tsx
  *
- * Signal stabilization loader:
- * - Particles with noise-driven motion
- * - Over ~1.5s, noise amplitude decreases
- * - Text "Signal stabilizing..." → "Ethan Fung" emerges
- * - Fires once on first load only (sessionStorage flag)
- * - Seamless fade into homepage
+ * Signal stabilization loader - FIXED VERSION
+ * Proper: Canvas is ALWAYS rendered, but visibility controlled by state
  */
 
 "use client";
@@ -102,8 +98,11 @@ const DEBUG = process.env.NODE_ENV !== "production";
 export default function LoaderSignalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [isMounted, setIsMounted] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+  
+  // KEY FIX: Start with shouldShow = true, only decide to hide after mount
+  const [shouldShow, setShouldShow] = useState(true);
+  const [opacity, setOpacity] = useState(1);
+  
   const noiseRef = useRef<SimpleNoise | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const startTimeRef = useRef<number | null>(null);
@@ -112,33 +111,38 @@ export default function LoaderSignalCanvas() {
   const DURATION = 1500; // ms
   const PARTICLE_COUNT = 1000;
 
-  // Determine if we should show the loader on mount
+  // PHASE 1: On mount, check if we should skip loader
   useEffect(() => {
-    setIsMounted(true);
-    
     // Use sessionStorage for "first load only"
     const LOADER_KEY = "portfolio_loader_shown_session";
     const hasShownLoader = sessionStorage.getItem(LOADER_KEY);
     
     if (!hasShownLoader) {
+      // First load - SHOW loader
       sessionStorage.setItem(LOADER_KEY, "true");
-      setIsVisible(true);
-      DEBUG && console.log("[LoaderSignalCanvas] First load - showing loader");
+      setShouldShow(true);
+      DEBUG && console.log("[LoaderSignalCanvas] ✓ First load - showing loader");
     } else {
-      setIsVisible(false);
-      DEBUG && console.log("[LoaderSignalCanvas] Loader already shown this session");
+      // Already shown - HIDE loader
+      setShouldShow(false);
+      DEBUG && console.log("[LoaderSignalCanvas] ✓ Already shown - hiding loader");
     }
   }, []);
 
-  // Setup and run animation
+  // PHASE 2: When shouldShow is true, render the animation
   useEffect(() => {
-    if (!isMounted || !isVisible) return;
+    if (!shouldShow) {
+      DEBUG && console.log("[LoaderSignalCanvas] Loader hidden (shouldShow=false)");
+      return;
+    }
 
     const canvas = canvasRef.current;
     if (!canvas) {
-      DEBUG && console.error("[LoaderSignalCanvas] Canvas ref is null");
+      DEBUG && console.error("[LoaderSignalCanvas] Canvas ref is null!");
       return;
     }
+
+    DEBUG && console.log("[LoaderSignalCanvas] Starting animation setup");
 
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) {
@@ -151,7 +155,9 @@ export default function LoaderSignalCanvas() {
     const rect = canvas.parentElement?.getBoundingClientRect();
     
     if (!rect || rect.width === 0 || rect.height === 0) {
-      DEBUG && console.error("[LoaderSignalCanvas] Container has zero dimensions", rect);
+      DEBUG && console.error(
+        `[LoaderSignalCanvas] Container zero dimensions: ${rect?.width}x${rect?.height}`
+      );
       return;
     }
 
@@ -164,7 +170,7 @@ export default function LoaderSignalCanvas() {
       `[LoaderSignalCanvas] Canvas initialized: ${rect.width}x${rect.height} (DPR: ${dpr})`
     );
 
-    // Initialize noise with random seed
+    // Initialize noise
     noiseRef.current = new SimpleNoise(Math.random() * 1000);
 
     // Create particles
@@ -236,7 +242,7 @@ export default function LoaderSignalCanvas() {
       for (let i = 0; i < particles.length; i++) {
         const particle = particles[i];
 
-        // Find nearby black pixel (text) using efficient search
+        // Find nearby black pixel (text)
         const searchRadius = 150;
         let foundPixel = false;
 
@@ -258,7 +264,6 @@ export default function LoaderSignalCanvas() {
             const g = data[idx + 1];
             const b = data[idx + 2];
 
-            // Black text pixels should have RGB values close to 0
             if (r < 50 && g < 50 && b < 50) {
               particle.targetX = sampleX;
               particle.targetY = sampleY;
@@ -267,14 +272,13 @@ export default function LoaderSignalCanvas() {
           }
         }
 
-        // Noise-driven motion that progressively aligns to target
+        // Particle physics
         const noiseX = noise.noise(particle.x * 0.005 + elapsed * 0.00015, particle.y * 0.005);
         const noiseY = noise.noise(
           particle.x * 0.005 + 100 + elapsed * 0.00015,
           particle.y * 0.005 + 100
         );
 
-        // Amplitude decreases with progress (signal stabilizes)
         const noiseAmplitude = Math.pow(1 - progress, 2.2) * 5;
         const alignmentStrength = progress * progress * progress;
 
@@ -288,14 +292,14 @@ export default function LoaderSignalCanvas() {
         particle.x += particle.vx * 0.85;
         particle.y += particle.vy * 0.85;
 
-        // Bounds with wrap
+        // Bounds
         if (particle.x < 0) particle.x = rect.width;
         if (particle.x > rect.width) particle.x = 0;
         if (particle.y < 0) particle.y = rect.height;
         if (particle.y > rect.height) particle.y = 0;
       }
 
-      // Render particles with increasing opacity
+      // Render particles
       const particleOpacity = 0.6 + progress * 0.4;
       ctx.fillStyle = `rgba(0, 0, 0, ${particleOpacity})`;
       for (const particle of particles) {
@@ -307,8 +311,8 @@ export default function LoaderSignalCanvas() {
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(animate);
       } else {
-        // Animation complete - show "Click to continue"
-        ctx.fillStyle = "rgba(255, 255, 255, 1)";
+        // Animation complete
+        ctx.fillStyle = "white";
         ctx.fillRect(0, 0, rect.width, rect.height);
 
         ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
@@ -323,19 +327,17 @@ export default function LoaderSignalCanvas() {
           const fadeDuration = 300;
 
           const fadeOut = () => {
-            fadeProgress = Math.min(
-              (Date.now() - fadeStart) / fadeDuration,
-              1
-            );
+            fadeProgress = Math.min((Date.now() - fadeStart) / fadeDuration, 1);
             ctx.fillStyle = `rgba(255, 255, 255, ${1 - fadeProgress})`;
             ctx.fillRect(0, 0, rect.width, rect.height);
 
             if (fadeProgress < 1) {
               rafRef.current = requestAnimationFrame(fadeOut);
             } else {
-              setIsVisible(false);
+              setShouldShow(false);
+              setOpacity(0);
               canvas.removeEventListener("click", handleClick);
-              DEBUG && console.log("[LoaderSignalCanvas] Animation complete - hiding loader");
+              DEBUG && console.log("[LoaderSignalCanvas] Fade complete - hiding loader");
             }
           };
 
@@ -347,17 +349,17 @@ export default function LoaderSignalCanvas() {
     };
 
     rafRef.current = requestAnimationFrame(animate);
-    DEBUG && console.log("[LoaderSignalCanvas] Animation started");
+    DEBUG && console.log("[LoaderSignalCanvas] Animation frame started");
 
     return () => {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
-        DEBUG && console.log("[LoaderSignalCanvas] Animation cleanup");
       }
     };
-  }, [isMounted, isVisible]);
+  }, [shouldShow]);
 
-  if (!isVisible) {
+  // Canvas is ALWAYS rendered when shouldShow is true
+  if (!shouldShow) {
     return null;
   }
 
@@ -365,6 +367,11 @@ export default function LoaderSignalCanvas() {
     <div 
       ref={containerRef}
       className="fixed inset-0 z-[9999] bg-white flex items-center justify-center"
+      style={{
+        opacity,
+        transition: opacity < 1 ? "opacity 0.3s ease-out" : "none",
+        pointerEvents: shouldShow ? "auto" : "none",
+      }}
     >
       <canvas
         ref={canvasRef}
