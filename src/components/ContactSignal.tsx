@@ -62,7 +62,7 @@ export default function ContactSignal() {
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, displayWidth, displayHeight);
 
-      const amplitude = (displayHeight / 3) * (filterValue / 100 * 0.7 + 0.4);
+      const amplitude = (displayHeight / 2.5) * (filterValue / 100 * 0.6 + 0.5);
       const frequency = 2.5 + filterValue / 100 * 3;
       const coherence = filterValue / 100;
 

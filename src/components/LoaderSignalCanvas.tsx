@@ -5,27 +5,24 @@
  * - Particles with noise-driven motion
  * - Over ~1.5s, noise amplitude decreases
  * - Text "Signal stabilizing..." → "Ethan Fung" emerges
- * - Fires once on first load only (localStorage flag)
+ * - Fires once on first load only (sessionStorage flag)
  * - Seamless fade into homepage
- * - Respects prefers-reduced-motion
  */
 
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 
-// Simple Perlin noise implementation (simplex-like)
+// Simple Perlin noise implementation
 class SimpleNoise {
   private permutation: number[] = [];
   private p: number[] = [];
 
   constructor(seed: number = 0) {
-    // Initialize permutation table
     for (let i = 0; i < 256; i++) {
       this.permutation[i] = i;
     }
 
-    // Shuffle with seed
     let random = this.seededRandom(seed);
     for (let i = 255; i > 0; i--) {
       const j = Math.floor(random() * (i + 1));
@@ -100,61 +97,82 @@ interface Particle {
   life: number;
 }
 
+const DEBUG = process.env.NODE_ENV !== "production";
+
 export default function LoaderSignalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
   const noiseRef = useRef<SimpleNoise | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const startTimeRef = useRef<number | null>(null);
-  const prefersReducedMotion =
-    typeof window !== "undefined"
-      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      : false;
+  const rafRef = useRef<number | null>(null);
 
-  const DURATION = prefersReducedMotion ? 400 : 1500; // ms
+  const DURATION = 1500; // ms
   const PARTICLE_COUNT = 1000;
 
-  // Initialize on client only
+  // Determine if we should show the loader on mount
   useEffect(() => {
     setIsMounted(true);
     
-    // Check if loader has been shown
-    const hasSeenLoader = localStorage.getItem("portfolio_loader_seen");
-
-    if (hasSeenLoader) {
+    // Use sessionStorage for "first load only"
+    const LOADER_KEY = "portfolio_loader_shown_session";
+    const hasShownLoader = sessionStorage.getItem(LOADER_KEY);
+    
+    if (!hasShownLoader) {
+      sessionStorage.setItem(LOADER_KEY, "true");
+      setIsVisible(true);
+      DEBUG && console.log("[LoaderSignalCanvas] First load - showing loader");
+    } else {
       setIsVisible(false);
-      return;
+      DEBUG && console.log("[LoaderSignalCanvas] Loader already shown this session");
     }
-
-    setIsVisible(true);
   }, []);
 
+  // Setup and run animation
   useEffect(() => {
     if (!isMounted || !isVisible) return;
 
-    // Mark as seen
-    localStorage.setItem("portfolio_loader_seen", "true");
-
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      DEBUG && console.error("[LoaderSignalCanvas] Canvas ref is null");
+      return;
+    }
 
     const ctx = canvas.getContext("2d", { alpha: true });
-    if (!ctx) return;
+    if (!ctx) {
+      DEBUG && console.error("[LoaderSignalCanvas] Failed to get 2D context");
+      return;
+    }
 
-    // Set canvas size
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // Get proper DPI scaling
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement?.getBoundingClientRect();
+    
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      DEBUG && console.error("[LoaderSignalCanvas] Container has zero dimensions", rect);
+      return;
+    }
 
-    // Initialize noise
+    // Set canvas size with DPI scaling
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    DEBUG && console.log(
+      `[LoaderSignalCanvas] Canvas initialized: ${rect.width}x${rect.height} (DPR: ${dpr})`
+    );
+
+    // Initialize noise with random seed
     noiseRef.current = new SimpleNoise(Math.random() * 1000);
 
-    // Create particles distributed across screen
+    // Create particles
     const particles: Particle[] = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       particles.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
+        x: Math.random() * rect.width,
+        y: Math.random() * rect.height,
         vx: (Math.random() - 0.5) * 2,
         vy: (Math.random() - 0.5) * 2,
         targetX: 0,
@@ -168,8 +186,8 @@ export default function LoaderSignalCanvas() {
     const textMasks: Record<string, ImageData> = {};
     const createMask = (text: string) => {
       const textCanvas = document.createElement("canvas");
-      textCanvas.width = canvas.width;
-      textCanvas.height = canvas.height;
+      textCanvas.width = rect.width;
+      textCanvas.height = rect.height;
       const textCtx = textCanvas.getContext("2d");
       if (!textCtx) return;
 
@@ -179,8 +197,8 @@ export default function LoaderSignalCanvas() {
       textCtx.font = "bold 84px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui";
       textCtx.textAlign = "center";
       textCtx.textBaseline = "middle";
-      textCtx.fillText(text, canvas.width / 2, canvas.height / 2);
-      
+      textCtx.fillText(text, rect.width / 2, rect.height / 2);
+
       const imageData = textCtx.getImageData(0, 0, textCanvas.width, textCanvas.height);
       textMasks[text] = imageData;
     };
@@ -198,7 +216,7 @@ export default function LoaderSignalCanvas() {
 
       // Clear with white background
       ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, rect.width, rect.height);
 
       const noise = noiseRef.current!;
 
@@ -218,11 +236,10 @@ export default function LoaderSignalCanvas() {
       for (let i = 0; i < particles.length; i++) {
         const particle = particles[i];
 
-        // Find nearby black pixel (text) using more efficient search
+        // Find nearby black pixel (text) using efficient search
         const searchRadius = 150;
         let foundPixel = false;
 
-        // Try to find a black pixel near the particle
         for (let attempt = 0; attempt < 20 && !foundPixel; attempt++) {
           const angle = Math.random() * Math.PI * 2;
           const dist = Math.random() * searchRadius;
@@ -231,17 +248,16 @@ export default function LoaderSignalCanvas() {
 
           if (
             sampleX >= 0 &&
-            sampleX < canvas.width &&
+            sampleX < rect.width &&
             sampleY >= 0 &&
-            sampleY < canvas.height
+            sampleY < rect.height
           ) {
             const idx =
-              (Math.floor(sampleY) * canvas.width + Math.floor(sampleX)) * 4;
-            // Check if pixel is black (RGB all very dark - true black is 0,0,0)
+              (Math.floor(sampleY) * Math.floor(rect.width) + Math.floor(sampleX)) * 4;
             const r = data[idx];
             const g = data[idx + 1];
             const b = data[idx + 2];
-            
+
             // Black text pixels should have RGB values close to 0
             if (r < 50 && g < 50 && b < 50) {
               particle.targetX = sampleX;
@@ -260,7 +276,7 @@ export default function LoaderSignalCanvas() {
 
         // Amplitude decreases with progress (signal stabilizes)
         const noiseAmplitude = Math.pow(1 - progress, 2.2) * 5;
-        const alignmentStrength = progress * progress * progress; // Stronger pull as time progresses
+        const alignmentStrength = progress * progress * progress;
 
         particle.vx =
           noiseX * noiseAmplitude +
@@ -269,15 +285,14 @@ export default function LoaderSignalCanvas() {
           noiseY * noiseAmplitude +
           (particle.targetY - particle.y) * alignmentStrength * 0.08;
 
-        // Apply velocity with damping
         particle.x += particle.vx * 0.85;
         particle.y += particle.vy * 0.85;
 
         // Bounds with wrap
-        if (particle.x < 0) particle.x = canvas.width;
-        if (particle.x > canvas.width) particle.x = 0;
-        if (particle.y < 0) particle.y = canvas.height;
-        if (particle.y > canvas.height) particle.y = 0;
+        if (particle.x < 0) particle.x = rect.width;
+        if (particle.x > rect.width) particle.x = 0;
+        if (particle.y < 0) particle.y = rect.height;
+        if (particle.y > rect.height) particle.y = 0;
       }
 
       // Render particles with increasing opacity
@@ -289,22 +304,19 @@ export default function LoaderSignalCanvas() {
         ctx.fill();
       }
 
-      // Continue animation or wait for click
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        rafRef.current = requestAnimationFrame(animate);
       } else {
-        // Animation complete - show "Click to continue" and wait for interaction
+        // Animation complete - show "Click to continue"
         ctx.fillStyle = "rgba(255, 255, 255, 1)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, rect.width, rect.height);
 
-        // Draw completion text
         ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
         ctx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("Click anywhere to continue", canvas.width / 2, canvas.height / 2 + 60);
+        ctx.fillText("Click anywhere to continue", rect.width / 2, rect.height / 2 + 60);
 
-        // Add click listener to close loader
         const handleClick = () => {
           let fadeProgress = 0;
           const fadeStart = Date.now();
@@ -316,13 +328,14 @@ export default function LoaderSignalCanvas() {
               1
             );
             ctx.fillStyle = `rgba(255, 255, 255, ${1 - fadeProgress})`;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(0, 0, rect.width, rect.height);
 
             if (fadeProgress < 1) {
-              requestAnimationFrame(fadeOut);
+              rafRef.current = requestAnimationFrame(fadeOut);
             } else {
               setIsVisible(false);
               canvas.removeEventListener("click", handleClick);
+              DEBUG && console.log("[LoaderSignalCanvas] Animation complete - hiding loader");
             }
           };
 
@@ -333,7 +346,15 @@ export default function LoaderSignalCanvas() {
       }
     };
 
-    animate();
+    rafRef.current = requestAnimationFrame(animate);
+    DEBUG && console.log("[LoaderSignalCanvas] Animation started");
+
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        DEBUG && console.log("[LoaderSignalCanvas] Animation cleanup");
+      }
+    };
   }, [isMounted, isVisible]);
 
   if (!isVisible) {
@@ -341,12 +362,17 @@ export default function LoaderSignalCanvas() {
   }
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div 
+      ref={containerRef}
+      className="fixed inset-0 z-[9999] bg-white flex items-center justify-center"
+    >
       <canvas
         ref={canvasRef}
-        className="block w-full h-full"
+        className="w-full h-full block"
         style={{
-          background: "white",
+          display: "block",
+          margin: 0,
+          padding: 0,
         }}
       />
     </div>
