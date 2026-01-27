@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export default function Reveal({ children }: { children: React.ReactNode }) {
+export function Reveal({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [show, setShow] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -45,3 +45,5 @@ export default function Reveal({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+export default Reveal;

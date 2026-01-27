@@ -1,68 +1,93 @@
-import { Project } from "@/data/projects";
+/**
+ * ProjectCard.tsx
+ *
+ * Enhanced project card with:
+ * - Title
+ * - Problem statement (one-line framing)
+ * - Domain tags for filtering
+ * - Tech stack badges
+ * - Clickable to expand into ProjectDetail modal
+ */
+
+"use client";
+
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { Project } from "@/data/resume";
+import ProjectDetail from "./ProjectDetail";
 
 interface ProjectCardProps {
   project: Project;
 }
 
 export default function ProjectCard({ project }: ProjectCardProps) {
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+
   return (
-    <div className="group rounded-xl border border-zinc-200 bg-white/50 backdrop-blur hover:bg-white/70 dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:bg-zinc-900/70 p-6 transition-all duration-300 hover:border-zinc-400 dark:hover:border-zinc-600">
-      {/* Title */}
-      <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-        {project.title}
-      </h3>
+    <>
+      <button
+        onClick={() => setIsDetailOpen(true)}
+        className="group w-full text-left p-6 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-all hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-600"
+      >
+        {/* Header with Status */}
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 flex-1">
+            {project.title}
+          </h3>
+          {project.status === "in-progress" && (
+            <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-300 rounded flex-shrink-0">
+              In Progress
+            </span>
+          )}
+        </div>
 
-      {/* Impact line if present */}
-      {project.impactLine && (
-        <p className="mt-1 text-sm font-medium text-zinc-600 dark:text-zinc-400">
-          {project.impactLine}
+        {/* Problem Statement */}
+        <p className="text-sm text-zinc-700 dark:text-zinc-300 mb-4">
+          {project.problemStatement}
         </p>
-      )}
 
-      {/* Description */}
-      <p className="mt-3 text-zinc-700 dark:text-zinc-300 leading-relaxed">
-        {project.desc}
-      </p>
+        {/* Domain Tags */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {project.domains.map((domain) => (
+            <span
+              key={domain}
+              className="px-2.5 py-1 text-xs font-medium rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300"
+            >
+              {domain}
+            </span>
+          ))}
+        </div>
 
-      {/* Tech badges */}
-      <div className="mt-4 flex flex-wrap gap-2">
-        {project.tech.map((tech) => (
-          <span
-            key={tech}
-            className="inline-block rounded-full border border-zinc-300 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-          >
-            {tech}
-          </span>
-        ))}
-      </div>
+        {/* Tech Stack */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {project.tech.slice(0, 3).map((tech) => (
+            <span
+              key={tech}
+              className="px-2 py-1 text-xs rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400"
+            >
+              {tech}
+            </span>
+          ))}
+          {project.tech.length > 3 && (
+            <span className="px-2 py-1 text-xs rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400">
+              +{project.tech.length - 3}
+            </span>
+          )}
+        </div>
 
-      {/* Links */}
-      <div className="mt-5 flex flex-wrap gap-3">
-        {project.links.demo && (
-          <a
-            href={project.links.demo}
-            className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition underline underline-offset-2"
-          >
-            Demo
-          </a>
-        )}
-        {project.links.code && (
-          <a
-            href={project.links.code}
-            className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition underline underline-offset-2"
-          >
-            Code
-          </a>
-        )}
-        {project.links.writeup && (
-          <a
-            href={project.links.writeup}
-            className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition underline underline-offset-2"
-          >
-            Write-up
-          </a>
-        )}
-      </div>
-    </div>
+        {/* CTA */}
+        <div className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 group-hover:gap-3 transition-all">
+          Learn More
+          <ChevronRight className="w-4 h-4" />
+        </div>
+      </button>
+
+      {/* Detail Modal */}
+      <ProjectDetail
+        project={project}
+        isOpen={isDetailOpen}
+        onClose={() => setIsDetailOpen(false)}
+      />
+    </>
   );
 }

@@ -2,7 +2,7 @@
 
 import Reveal from "./Reveal";
 import ProjectCard from "./ProjectCard";
-import { projects } from "@/data/projects";
+import { resume } from "@/data/resume";
 
 export default function ProjectsGrid() {
   return (
@@ -22,8 +22,8 @@ export default function ProjectsGrid() {
 
         {/* Grid */}
         <div className="grid gap-6 sm:grid-cols-2">
-          {projects.map((project) => (
-            <Reveal key={project.title}>
+          {resume.allProjects.map((project) => (
+            <Reveal key={project.id}>
               <ProjectCard project={project} />
             </Reveal>
           ))}

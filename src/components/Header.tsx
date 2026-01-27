@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import ThemeToggle from "./ThemeToggle";
-import { SITE } from "@/data/site";
+import LoaderToggle from "./LoaderToggle";
+import { resume } from "@/data/resume";
 
 export default function Header() {
   return (
@@ -13,7 +14,7 @@ export default function Header() {
           href="#top"
           className="font-semibold text-zinc-900 hover:text-zinc-600 dark:text-zinc-100 dark:hover:text-zinc-400 transition"
         >
-          {SITE.name}
+          {resume.name}
         </Link>
 
         {/* Center nav links */}
@@ -31,10 +32,10 @@ export default function Header() {
             Experience
           </a>
           <a
-            href="#about"
+            href="#education"
             className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition"
           >
-            About
+            Education
           </a>
           <a
             href="#contact"
@@ -44,11 +45,12 @@ export default function Header() {
           </a>
         </div>
 
-        {/* Right: ThemeToggle + Resume */}
+        {/* Right: LoaderToggle + ThemeToggle + Resume */}
         <div className="flex items-center gap-3">
+          <LoaderToggle />
           <ThemeToggle />
           <a
-            href={SITE.resumeLink}
+            href="/ResumeW26.pdf"
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:block rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200 transition"
