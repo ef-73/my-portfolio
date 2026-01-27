@@ -65,6 +65,19 @@ export default function ContactSignal() {
 
     console.log(`[ContactSignal] ✓ Canvas ready: ${displayWidth}x${displayHeight} (DPR: ${dpr})`);
 
+    // INSPECT CANVAS ELEMENT
+    const computed = window.getComputedStyle(canvas);
+    console.log("[DEBUG] ContactSignal canvas computed styles:", {
+      display: computed.display,
+      visibility: computed.visibility,
+      opacity: computed.opacity,
+      position: computed.position,
+      offsetWidth: canvas.offsetWidth,
+      offsetHeight: canvas.offsetHeight,
+      parentDisplay: window.getComputedStyle(canvas.parentElement!).display,
+      parentHeight: window.getComputedStyle(canvas.parentElement!).height,
+    });
+
     // TEST RECTANGLE - Prove canvas is rendering
     console.log("[ContactSignal] Drawing TEST RECTANGLE in blue");
     ctx.fillStyle = "blue";

@@ -1,8 +1,13 @@
 /**
  * LoaderSignalCanvas.tsx
  *
- * Signal stabilization loader - FIXED VERSION
- * Proper: Canvas is ALWAYS rendered, but visibility controlled by state
+ * Signal stabilization loader with proper particle-to-text morphing:
+ * - Extracts a point cloud of black pixels from text masks once at setup
+ * - Assigns particles to stable target points based on point cloud
+ * - Blends forces: noise early, target attraction scales with progress
+ * - On text transition, reassigns targets from new point cloud
+ * - Uses tri-state visibility to prevent flicker on mount
+ * - Supports ?loader=1 URL param to force replay
  */
 
 "use client";
@@ -95,72 +100,121 @@ interface Particle {
 
 const DEBUG = process.env.NODE_ENV !== "production";
 
+// Extract black pixel point cloud from text mask
+// Sample every N pixels to control density and performance
+function extractPointCloud(
+  imageData: ImageData,
+  width: number,
+  height: number,
+  sampleRate: number = 2
+): Array<[number, number]> {
+  const points: Array<[number, number]> = [];
+  const data = imageData.data;
+
+  for (let y = 0; y < height; y += sampleRate) {
+    for (let x = 0; x < width; x += sampleRate) {
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      // Black pixel (text)
+      if (r < 50 && g < 50 && b < 50) {
+        points.push([x, y]);
+      }
+    }
+  }
+
+  return points;
+}
+
+// Assign particles to targets from point cloud
+function assignParticlesToTargets(
+  particles: Particle[],
+  pointCloud: Array<[number, number]>
+) {
+  if (pointCloud.length === 0) return;
+
+  for (let i = 0; i < particles.length; i++) {
+    const particleIdx = i % pointCloud.length;
+    const [tx, ty] = pointCloud[particleIdx];
+    particles[i].targetX = tx;
+    particles[i].targetY = ty;
+  }
+}
+
 export default function LoaderSignalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  
-  // KEY FIX: Start with shouldShow = true, only decide to hide after mount
-  const [shouldShow, setShouldShow] = useState(true);
+
+  // TRI-STATE: null = computing, true = show loader, false = skip loader
+  // This prevents flicker where true starts, then immediately switches to false
+  const [shouldShow, setShouldShow] = useState<boolean | null>(null);
   const [opacity, setOpacity] = useState(1);
-  
+
   const noiseRef = useRef<SimpleNoise | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const startTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
+  const lastTextRef = useRef<string | null>(null);
+  const pointCloudsRef = useRef<Record<string, Array<[number, number]>>>({});
 
   const DURATION = 1500; // ms
   const PARTICLE_COUNT = 1000;
+  const LOADER_KEY = "portfolio_loader_shown_session";
 
   // PHASE 1: On mount, check if we should skip loader
+  // Compute state BEFORE rendering anything to prevent flicker
   useEffect(() => {
-    // Use sessionStorage for "first load only"
-    const LOADER_KEY = "portfolio_loader_shown_session";
+    const urlParams = new URLSearchParams(window.location.search);
+    const forceLoader = urlParams.get("loader") === "1";
+
     const hasShownLoader = sessionStorage.getItem(LOADER_KEY);
-    
-    console.log("[LoaderSignalCanvas] PHASE 1 mount: hasShownLoader=", hasShownLoader);
-    
-    if (!hasShownLoader) {
-      // First load - SHOW loader
+    const shouldDisplay = forceLoader || !hasShownLoader;
+
+    console.log(
+      "[LoaderSignalCanvas] Mount: forceLoader=",
+      forceLoader,
+      "hasShownLoader=",
+      !!hasShownLoader,
+      "shouldDisplay=",
+      shouldDisplay
+    );
+
+    setShouldShow(shouldDisplay);
+
+    // Mark as shown in session storage (unless forced)
+    if (shouldDisplay && !forceLoader) {
       sessionStorage.setItem(LOADER_KEY, "true");
-      setShouldShow(true);
-      console.log("[LoaderSignalCanvas] ✓ First load - setting shouldShow=true");
-    } else {
-      // Already shown - HIDE loader
-      setShouldShow(false);
-      console.log("[LoaderSignalCanvas] ✓ Already shown - setting shouldShow=false");
     }
   }, []);
 
-  // PHASE 2: When shouldShow is true, render the animation
+  // PHASE 2: When shouldShow is determined, setup and run the animation
   useEffect(() => {
-    if (!shouldShow) {
-      DEBUG && console.log("[LoaderSignalCanvas] Loader hidden (shouldShow=false)");
+    // null = still computing, false = skip loader
+    if (shouldShow !== true) {
       return;
     }
 
     const canvas = canvasRef.current;
     if (!canvas) {
-      console.error("[LoaderSignalCanvas] ❌ Canvas ref is null!");
+      console.error("[LoaderSignalCanvas] Canvas ref is null!");
       return;
     }
 
-    console.log("[LoaderSignalCanvas] ✓ shouldShow=true, starting animation setup, canvas.width=", canvas.width, "canvas.height=", canvas.height);
-
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) {
-      DEBUG && console.error("[LoaderSignalCanvas] Failed to get 2D context");
+      console.error("[LoaderSignalCanvas] Failed to get 2D context");
       return;
     }
 
     // Get proper DPI scaling
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.parentElement?.getBoundingClientRect();
-    
-    console.log(`[DEBUG] canvas.parentElement = ${canvas.parentElement?.tagName}, rect = `, rect);
-    
+
     if (!rect || rect.width === 0 || rect.height === 0) {
       console.error(
-        `[LoaderSignalCanvas] ❌ Container zero dimensions: ${rect?.width}x${rect?.height}`
+        `[LoaderSignalCanvas] Container zero dimensions: ${rect?.width}x${rect?.height}`
       );
       return;
     }
@@ -171,21 +225,13 @@ export default function LoaderSignalCanvas() {
     ctx.scale(dpr, dpr);
 
     console.log(
-      `[LoaderSignalCanvas] ✓ Canvas initialized: ${rect.width}x${rect.height} (DPR: ${dpr}), canvas.width=${canvas.width}, canvas.height=${canvas.height}`
+      `[LoaderSignalCanvas] Canvas initialized: ${rect.width}x${rect.height} (DPR: ${dpr})`
     );
 
-    // TEST RECTANGLE - Prove canvas is rendering
-    console.log("[DEBUG] Drawing TEST RECTANGLE in red");
-    ctx.fillStyle = "red";
-    ctx.fillRect(20, 20, 200, 100);
-    ctx.fillStyle = "white";
-    ctx.font = "16px Arial";
-    ctx.fillText("CANVAS WORKS", 40, 60);
-
     // Initialize noise
-    noiseRef.current = new SimpleNoise(Math.random() * 1000);
+    noiseRef.current = new SimpleNoise(Math.random() * 10000);
 
-    // Create particles
+    // Create particles with random initial positions
     const particles: Particle[] = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       particles.push({
@@ -193,14 +239,15 @@ export default function LoaderSignalCanvas() {
         y: Math.random() * rect.height,
         vx: (Math.random() - 0.5) * 2,
         vy: (Math.random() - 0.5) * 2,
-        targetX: 0,
-        targetY: 0,
+        targetX: rect.width / 2,
+        targetY: rect.height / 2,
         life: Math.random(),
       });
     }
     particlesRef.current = particles;
 
-    // Pre-create text masks
+    // Pre-create text masks and extract point clouds ONCE at initialization
+    // This is O(width * height) but happens only once per animation
     const textMasks: Record<string, ImageData> = {};
     const createMask = (text: string) => {
       const textCanvas = document.createElement("canvas");
@@ -212,19 +259,41 @@ export default function LoaderSignalCanvas() {
       textCtx.fillStyle = "white";
       textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
       textCtx.fillStyle = "black";
-      textCtx.font = "bold 84px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui";
+      textCtx.font =
+        "bold 84px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui";
       textCtx.textAlign = "center";
       textCtx.textBaseline = "middle";
       textCtx.fillText(text, rect.width / 2, rect.height / 2);
 
-      const imageData = textCtx.getImageData(0, 0, textCanvas.width, textCanvas.height);
+      const imageData = textCtx.getImageData(
+        0,
+        0,
+        textCanvas.width,
+        textCanvas.height
+      );
       textMasks[text] = imageData;
+
+      // Extract point cloud from text mask (stable set of target positions)
+      const pointCloud = extractPointCloud(imageData, rect.width, rect.height, 2);
+      pointCloudsRef.current[text] = pointCloud;
+
+      DEBUG &&
+        console.log(
+          `[LoaderSignalCanvas] Text "${text}": ${pointCloud.length} target points extracted`
+        );
     };
 
     createMask("Signal stabilizing...");
     createMask("Ethan Fung");
 
     startTimeRef.current = Date.now();
+    lastTextRef.current = "Signal stabilizing...";
+
+    // Assign particles to targets for first text
+    assignParticlesToTargets(
+      particles,
+      pointCloudsRef.current["Signal stabilizing..."] || []
+    );
 
     const animate = () => {
       if (!canvas || !ctx || !startTimeRef.current) return;
@@ -232,68 +301,52 @@ export default function LoaderSignalCanvas() {
       const elapsed = Date.now() - startTimeRef.current;
       const progress = Math.min(elapsed / DURATION, 1);
 
-      // Clear with white background
+      // Clear canvas with white background
       ctx.fillStyle = "white";
       ctx.fillRect(0, 0, rect.width, rect.height);
 
       const noise = noiseRef.current!;
 
-      // Determine which text to show
-      let displayText = "Signal stabilizing…";
+      // Determine which text to show based on progress
+      let displayText = "Signal stabilizing...";
       if (progress > 0.65) {
         displayText = "Ethan Fung";
       }
 
-      // Get pre-created text mask
-      const textMask = textMasks[displayText];
-      if (!textMask) return;
+      // ONCE per text change, reassign particles to new point cloud
+      // This happens exactly once when transitioning between text phases
+      if (displayText !== lastTextRef.current) {
+        console.log(
+          `[LoaderSignalCanvas] Text transition: "${lastTextRef.current}" → "${displayText}"`
+        );
+        lastTextRef.current = displayText;
+        assignParticlesToTargets(
+          particles,
+          pointCloudsRef.current[displayText] || []
+        );
+      }
 
-      const data = textMask.data;
-
-      // Update particles
+      // Update particle physics with force blending
       for (let i = 0; i < particles.length; i++) {
         const particle = particles[i];
 
-        // Find nearby black pixel (text)
-        const searchRadius = 150;
-        let foundPixel = false;
-
-        for (let attempt = 0; attempt < 20 && !foundPixel; attempt++) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = Math.random() * searchRadius;
-          const sampleX = particle.x + Math.cos(angle) * dist;
-          const sampleY = particle.y + Math.sin(angle) * dist;
-
-          if (
-            sampleX >= 0 &&
-            sampleX < rect.width &&
-            sampleY >= 0 &&
-            sampleY < rect.height
-          ) {
-            const idx =
-              (Math.floor(sampleY) * Math.floor(rect.width) + Math.floor(sampleX)) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-
-            if (r < 50 && g < 50 && b < 50) {
-              particle.targetX = sampleX;
-              particle.targetY = sampleY;
-              foundPixel = true;
-            }
-          }
-        }
-
-        // Particle physics
-        const noiseX = noise.noise(particle.x * 0.005 + elapsed * 0.00015, particle.y * 0.005);
+        // Perlin noise: creates smooth, flowing motion
+        const noiseX = noise.noise(
+          particle.x * 0.005 + elapsed * 0.0001,
+          particle.y * 0.005
+        );
         const noiseY = noise.noise(
-          particle.x * 0.005 + 100 + elapsed * 0.00015,
+          particle.x * 0.005 + 100 + elapsed * 0.0001,
           particle.y * 0.005 + 100
         );
 
+        // Force blending:
+        // - Early progress: noise dominates (particles flow chaotically)
+        // - Late progress: target attraction dominates (particles converge to text)
         const noiseAmplitude = Math.pow(1 - progress, 2.2) * 5;
         const alignmentStrength = progress * progress * progress;
 
+        // Blend noise flow and target attraction
         particle.vx =
           noiseX * noiseAmplitude +
           (particle.targetX - particle.x) * alignmentStrength * 0.08;
@@ -301,17 +354,19 @@ export default function LoaderSignalCanvas() {
           noiseY * noiseAmplitude +
           (particle.targetY - particle.y) * alignmentStrength * 0.08;
 
-        particle.x += particle.vx * 0.85;
-        particle.y += particle.vy * 0.85;
+        // Damping increases as progress increases (particles "stick" to targets)
+        const damping = 0.85 + progress * 0.1;
+        particle.x += particle.vx * damping;
+        particle.y += particle.vy * damping;
 
-        // Bounds
+        // Wrap around screen edges
         if (particle.x < 0) particle.x = rect.width;
         if (particle.x > rect.width) particle.x = 0;
         if (particle.y < 0) particle.y = rect.height;
         if (particle.y > rect.height) particle.y = 0;
       }
 
-      // Render particles
+      // Render particles as small circles
       const particleOpacity = 0.6 + progress * 0.4;
       ctx.fillStyle = `rgba(0, 0, 0, ${particleOpacity})`;
       for (const particle of particles) {
@@ -321,9 +376,10 @@ export default function LoaderSignalCanvas() {
       }
 
       if (progress < 1) {
+        // Continue animation
         rafRef.current = requestAnimationFrame(animate);
       } else {
-        // Animation complete
+        // Animation complete - show click prompt
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, rect.width, rect.height);
 
@@ -331,7 +387,11 @@ export default function LoaderSignalCanvas() {
         ctx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("Click anywhere to continue", rect.width / 2, rect.height / 2 + 60);
+        ctx.fillText(
+          "Click anywhere to continue",
+          rect.width / 2,
+          rect.height / 2 + 60
+        );
 
         const handleClick = () => {
           let fadeProgress = 0;
@@ -349,7 +409,8 @@ export default function LoaderSignalCanvas() {
               setShouldShow(false);
               setOpacity(0);
               canvas.removeEventListener("click", handleClick);
-              DEBUG && console.log("[LoaderSignalCanvas] Fade complete - hiding loader");
+              DEBUG &&
+                console.log("[LoaderSignalCanvas] Fade complete - hiding loader");
             }
           };
 
@@ -361,7 +422,7 @@ export default function LoaderSignalCanvas() {
     };
 
     rafRef.current = requestAnimationFrame(animate);
-    DEBUG && console.log("[LoaderSignalCanvas] Animation frame started");
+    DEBUG && console.log("[LoaderSignalCanvas] Animation started");
 
     return () => {
       if (rafRef.current) {
@@ -370,13 +431,18 @@ export default function LoaderSignalCanvas() {
     };
   }, [shouldShow]);
 
-  // Canvas is ALWAYS rendered when shouldShow is true
+  // Don't render anything until state is computed to prevent flicker
+  if (shouldShow === null) {
+    return null;
+  }
+
+  // Don't render if loader should be hidden
   if (!shouldShow) {
     return null;
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className="fixed inset-0 z-[9999] bg-white flex items-center justify-center"
       style={{
